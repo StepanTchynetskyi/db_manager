@@ -1,11 +1,11 @@
 import logging
 import time
 from threading import RLock
-
 import psycopg2
-
 from dbsetup import database
 
+logging.basicConfig(level=logging.INFO)
+GET_DELAY = 0.1
 
 class DBPool:
     def __init__(self, user, passwd, dbname, host, port, max_conn):
@@ -22,9 +22,8 @@ class DBPool:
 
     def __del__(self):
         self.log.info("Close all conections")
-        with self.lock:
-            for connection in self._pool:
-                self._close_connection(connection)
+        for connection in self._pool:
+            self._close_connection(connection)
 
     def __enter__(self):
         connection = next(self.manager())
@@ -58,7 +57,7 @@ class DBPool:
                 self.log.info("Get %s connection", connection)
                 return connection
             except IndexError:
-                time.sleep(1)
+                time.sleep(GET_DELAY)
 
     def _release_connection(self, connection):
         self.log.info("Release %s connection", connection)
