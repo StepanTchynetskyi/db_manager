@@ -1,70 +1,74 @@
-import psycopg2
+import logging
 import time
 from threading import RLock
-from contextlib import contextmanager
+
+import psycopg2
+
 from dbsetup import database
+
+
 class DBPool:
-    def __init__(self, user, passwd, db_name, host, port, ttl,min_conn, max_conn):
-        self.min_conn = min_conn
-        self.max_conn = max_conn
+    def __init__(self, user, passwd, dbname, host, port, max_conn):
         self.user = user
         self.passwd = passwd
-        self.db_name = db_name,
+        self.db_name = dbname
         self.host = host
         self.port = port
-        self.ttl = ttl
-        self.pool = []
-        self.active_conns = 0
-        self._lock = RLock()
-        for i in range(self.min_conn):
-            self._connect()
+        self.max_conn = max_conn
+        self.log = logging.getLogger("DBPool")
+        self.lock = RLock()
+        self.toRelease = None
+        self._pool = [self._connect() for _ in range(max_conn)]
+
+    def __del__(self):
+        self.log.info("Close all conections")
+        with self.lock:
+            for connection in self._pool:
+                self._close_connection(connection)
+
+    def __enter__(self):
+        connection = next(self.manager())
+        # with self.lock:
+        #     connection = self._get_connection()
+        self.toRelease = connection
+        return connection
+
+    def __exit__(self, exc_type, exc_value, tb):
+        try:
+            self._release_connection(self.toRelease)
+        except exc_type:
+            self._close_connection(self.toRelease)
+            connection = self._connect()
+            self._pool.append(connection)
+
+    def _close_connection(self, connection):
+        self.log.info("Close %s connection", connection)
+        connection.close()
 
     def _connect(self):
         connection = psycopg2.connect(dbname=self.db_name, user=self.user, password=self.passwd, host=self.host,
                                       port=self.port)
-        connection = {"connection": connection, "created_at": time.time()}
-        self.active_conns += 1
+        self.log.info('Created connection object: %s.', connection)
         return connection
 
-    def _get_conn(self):
-        connection = None
-        while not connection:
-            if self.pool:
+    def _get_connection(self):
+        while True:
+            try:
+                connection = self._pool.pop()
+                self.log.info("Get %s connection", connection)
+                return connection
+            except IndexError:
+                time.sleep(1)
 
-                connection = self.pool.pop()
-            elif self.active_conns < self.max_conn:
-                connection = self._connect()
-            time.sleep(1)
-        return connection
+    def _release_connection(self, connection):
+        self.log.info("Release %s connection", connection)
+        self._pool.append(connection)
 
-    def _close(self, connection):
-        self.active_conns -= 1
-        connection['connection'].close()
-
-    def _close_all(self):
-        self._lock.acquire()
-        for conn in self.pool:
-            self._close(conn)
-        self._lock.release()
-
-    def _release_conn(self, connection):
-        self.pool.append(connection)
-
-    @contextmanager
     def manager(self):
-        with self._lock:
-            connection = self._get_conn()
+        with self.lock:
+            connection = self._get_connection()
 
-        try:
-            yield connection["connection"]
-        except:
-            self._close(connection)
+        yield connection
 
-        if connection['created_at'] + self.ttl < time.time():
-            self._release_conn(connection)
-        else:
-            self._close(connection)
 
-    def pool(self):
-        pool_db = DBPool(**database,min_conn=1, max_conn=20, ttl=100)
-        return pool_db
+db_pool = DBPool(**database, max_conn=10)
