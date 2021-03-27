@@ -7,6 +7,7 @@ from dbsetup import database
 logging.basicConfig(level=logging.INFO)
 GET_DELAY = 0.1
 
+
 class DBPool:
     def __init__(self, user, passwd, dbname, host, port, max_conn):
         self.user = user
@@ -17,7 +18,7 @@ class DBPool:
         self.max_conn = max_conn
         self.log = logging.getLogger("DBPool")
         self.lock = RLock()
-        self.toRelease = None
+        self.toRelease = []
         self._pool = [self._connect() for _ in range(max_conn)]
 
     def __del__(self):
@@ -29,14 +30,14 @@ class DBPool:
         connection = next(self.manager())
         # with self.lock:
         #     connection = self._get_connection()
-        self.toRelease = connection
+        self.toRelease.append(connection)
         return connection
 
     def __exit__(self, exc_type, exc_value, tb):
         try:
-            self._release_connection(self.toRelease)
+            self._release_connection(self.toRelease.pop(0))
         except exc_type:
-            self._close_connection(self.toRelease)
+            self._close_connection(self.toRelease.pop(0))
             connection = self._connect()
             self._pool.append(connection)
 

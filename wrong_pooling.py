@@ -4,12 +4,12 @@ from threading import RLock
 from contextlib import contextmanager
 from dbsetup import database
 class DBPool:
-    def __init__(self, user, passwd, db_name, host, port, ttl,min_conn, max_conn):
+    def __init__(self, user, passwd, dbname, host, port, ttl,min_conn, max_conn):
         self.min_conn = min_conn
         self.max_conn = max_conn
         self.user = user
         self.passwd = passwd
-        self.db_name = db_name,
+        self.db_name = dbname,
         self.host = host
         self.port = port
         self.ttl = ttl
@@ -65,6 +65,5 @@ class DBPool:
         else:
             self._close(connection)
 
-    def pool(self):
-        pool_db = DBPool(**database,min_conn=1, max_conn=20, ttl=100)
-        return pool_db
+
+db_pool = DBPool(**database,min_conn=1, max_conn=20, ttl=100)
